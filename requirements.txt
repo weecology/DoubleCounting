@@ -9,3 +9,7 @@ torchvision
 DeepForest
 git+https://github.com/cvg/Hierarchical-Localization.git
 pytest
+paramiko
+label-studio
+Pillow
+label_studio_sdk
