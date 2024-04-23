@@ -1,0 +1,11 @@
+numpy
+torch
+pandas
+geopandas
+shapely
+pathlib
+hloc
+pycolmap
+torchvision
+DeepForest
+hloc @ https://github.com/cvg/Hierarchical-Localization
