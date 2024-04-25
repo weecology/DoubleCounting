@@ -7,19 +7,18 @@ from shapely.geometry import box
 from pathlib import Path
 from hloc import extract_features, match_features, reconstruction, visualization, pairs_from_exhaustive, triangulation
 from pycolmap import Reconstruction
-from hloc.visualization import plot_images, read_image, plot_keypoints
 from hloc.utils import viz_3d
 import torchvision
 
 import matplotlib.pyplot as pyplot
 
-def create_sfm_model(image_dir, output_path, image_paths=None, feature_type="disk", matcher="disk+lightglue", visualize=False):
+def create_sfm_model(image_dir, output_path, references, feature_type="disk", matcher="disk+lightglue", visualize=False):
   """
   Generate features for a set of images and perform matching.
 
   Args:
     image_dir (Path): Path to the directory containing the input images.
-    image_paths (Optional, list): List of paths to the input images. Can be a subset of the images in the directory.
+    references. List of paths to the input images. Can be a subset of the images in the directory.
     output_path (Path): Path to the output directory.
     feature_type (str, optional): Type of feature extraction method. Defaults to "disk".
     matcher (str, optional): Type of feature matching method. Defaults to "disk+lightglue".
@@ -40,15 +39,11 @@ def create_sfm_model(image_dir, output_path, image_paths=None, feature_type="dis
   feature_conf = extract_features.confs[feature_type]
   matcher_conf = match_features.confs[matcher]
 
-  # List and view images
-  images = [read_image(image_dir / x) for x in image_paths]
-  #plot_images(images, dpi=200)
-
   # Match and write files to disk
   if not os.path.exists(features):
-    extract_features.main(conf=feature_conf, image_dir=image_dir, image_list=image_paths, feature_path=features)
+    extract_features.main(conf=feature_conf, image_dir=image_dir, image_list=references, feature_path=features)
   if not os.path.exists(sfm_pairs):
-    pairs_from_exhaustive.main(sfm_pairs, image_list=image_paths)
+    pairs_from_exhaustive.main(sfm_pairs, image_list=references)
   if not os.path.exists(matches):
     match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
   if not os.path.exists(sfm_dir):
@@ -60,7 +55,7 @@ def create_sfm_model(image_dir, output_path, image_paths=None, feature_type="dis
 
   return model
 
-def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None):
+def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None, scalar_depth_range=None):
   """Convert a 2d point to a 3d point using the camera intrinsic and extrinsic parameters.
   Inspired by https://github.com/Totoro97/f2-nerf/blob/98f0daacb80e76724eb91519742c30fb35d0f72d/scripts/colmap2poses.py#L58
   https://github.com/colmap/colmap/issues/1476
@@ -73,6 +68,7 @@ def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None):
       intrinsic (np.array): colmap representation of intrinsic matrix in the format [f, cx, cy, k]
       extrinsic (pycolmap extrinsic matrix ): cam_to_world representation of the extrinsic matrix for a given image to the reconstruction
       depth_map (np.array, optional): The depth map of the image. Defaults to None.
+      scalar_depth_range (list, optional): The range of depths to consider. Defaults to [0,10].
   Returns:
       world_direction_vector (np.array): The 3D point in the world coordinate system.
   """
@@ -95,19 +91,25 @@ def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None):
 
   # Transform pixel in Camera coordinate frame to World coordinate frame
   direction_vector = inverted_intrinsic.dot(p)
-  world_direction_vector = translation + (rotation_matrix.dot(direction_vector))
+  # Normalize the direction vector
+  direction_vector = direction_vector / np.linalg.norm(direction_vector)
+  world_direction_vector =  (rotation_matrix.dot(direction_vector))
 
   # Get Camera origin
   cam = np.array([0,0,0]).T
   cam_world = translation + (rotation_matrix @ cam)
 
-  # Get unit vector
-  vector = world_direction_vector - cam_world
-  unit_vector = vector / np.linalg.norm(vector)
-  # This leads to very offset points -> 
-  #p3D = cam_world + unit_vector
-
-  return unit_vector
+  points3D = []
+  if scalar_depth_range:
+    for depth in range(scalar_depth_range[0], scalar_depth_range[1]):
+      world_position = translation +  world_direction_vector * depth
+      points3D.append(world_position)
+  else:
+    world_position = translation + world_direction_vector * depth
+    world_position = world_position / np.linalg.norm(world_position)
+    points3D.append(world_position)
+      
+  return points3D
 
 def create_intrinsic_matrix(f, cx, cy, k=0):
   """
@@ -262,24 +264,3 @@ def align_and_delete(model, predictions, threshold=0.5, image_dir=None, visualiz
   filtered_df = predictions.iloc[keep]
 
   return filtered_df
-
-
-# For depth map reading
-
-def read_array(path):
-    with open(path, "rb") as fid:
-        width, height, channels = np.genfromtxt(
-            fid, delimiter="&", max_rows=1, usecols=(0, 1, 2), dtype=int
-        )
-        fid.seek(0)
-        num_delimiter = 0
-        byte = fid.read(1)
-        while True:
-            if byte == b"&":
-                num_delimiter += 1
-                if num_delimiter >= 3:
-                    break
-            byte = fid.read(1)
-        array = np.fromfile(fid, np.float32)
-    array = array.reshape((width, height, channels), order="F")
-    return np.transpose(array, (1, 0, 2)).squeeze()
