@@ -20,7 +20,10 @@ pytest tests/
 For example to test the pycolmap reconstruction and alignment run
 
 ```
-pytest tests/test_stitching.py -k test_align_and_delete
+pytest tests/test_stitching.py -k test_transform_2d_to_3d_simple
 ```
+
+Here we label in green two points in the raw images and find them in the 3d space
+![](public/example_result.png)
 
 
