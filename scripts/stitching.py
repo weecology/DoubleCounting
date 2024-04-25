@@ -8,7 +8,10 @@ from pathlib import Path
 from hloc import extract_features, match_features, reconstruction, visualization, pairs_from_exhaustive, triangulation
 from pycolmap import Reconstruction
 from hloc.utils import viz_3d
+from hloc.utils.io import get_matches
 import torchvision
+import pycolmap
+import cv2
 
 import matplotlib.pyplot as pyplot
 
@@ -34,6 +37,8 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
   matches = output_path / 'matches.h5'
   results = output_path / 'results.txt'
   reference_sfm = output_path / "sfm_superpoint+superglue"  # the SfM model we will build
+  database_path = output_path / "database.db"
+  mvs_path = output_path / "mvs"
 
   # Set feature type
   feature_conf = extract_features.confs[feature_type]
@@ -50,12 +55,48 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
     model = reconstruction.main(sfm_dir = sfm_dir, image_dir=image_dir, pairs=sfm_pairs, features=features, matches=matches)
   else:
     model = Reconstruction(sfm_dir)
+  
   if visualize:
     visualization.visualize_sfm_2d(model, image_dir, color_by="visibility", n=1)
 
   return model
 
-def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None, scalar_depth_range=None):
+def compute_homography_matrix(model, h5_file, image1_name, image2_name):
+  """Compute the homography matrix between two images.
+  Args:
+      h5_file (str): Path to the h5 file containing the matches.
+      image1 (str): Name of the first image.
+      image2 (str): Name of the second image.
+  Returns:
+      dict: Dictionary of estimation outputs or None if failure.
+  """
+  matches, scores = get_matches(h5_file, image1_name, image2_name)
+  image1 = model.find_image_with_name(image1_name)
+  image2 = model.find_image_with_name(image2_name)
+
+  # Look up the matching points for each index, which is the first and which is the second index?
+  points1 = [image1.points2D[i].xy for i in matches[:,0]]
+  points2 = [image2.points2D[i].xy for i in matches[:,1]]
+
+  m = pycolmap.homography_matrix_estimation(points1, points2)
+
+  return m
+
+def warp_points(homography_matrix, points):
+  """Warp a set of points using a homography matrix.
+  Args:
+      homography_matrix (np.array): The homography matrix.
+      points (np.array): The points to warp.
+  Returns:
+      np.array: The warped points.
+  """
+  # As float, add dummy z 
+  reshaped_points = points.reshape(-1, 1, 2).astype(np.float32)
+  warped_points = cv2.perspectiveTransform(reshaped_points, homography_matrix)
+
+  return warped_points
+
+def transform_2d_to_3d(x, y, intrinsic, extrinsic, depth_map=None, scalar_depth_range=None):
   """Convert a 2d point to a 3d point using the camera intrinsic and extrinsic parameters.
   Inspired by https://github.com/Totoro97/f2-nerf/blob/98f0daacb80e76724eb91519742c30fb35d0f72d/scripts/colmap2poses.py#L58
   https://github.com/colmap/colmap/issues/1476
@@ -72,7 +113,7 @@ def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None, scalar_depth_ra
   Returns:
       world_direction_vector (np.array): The 3D point in the world coordinate system.
   """
-  # Add a dummy dimension to the 2D point for Z, should this be Traspose?
+  # Add a dummy dimension to the 2D point for Z
   p = np.array([x, y, 1]).T
 
   if depth_map is not None:
@@ -91,6 +132,7 @@ def transform_2d_to_3d(x,y,intrinsic, extrinsic, depth_map=None, scalar_depth_ra
 
   # Transform pixel in Camera coordinate frame to World coordinate frame
   direction_vector = inverted_intrinsic.dot(p)
+  
   # Normalize the direction vector
   direction_vector = direction_vector / np.linalg.norm(direction_vector)
   world_direction_vector =  (rotation_matrix.dot(direction_vector))
