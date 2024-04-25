@@ -1,8 +1,8 @@
 # DoubleCounting
 A repo for visualizing airborne imagery, making a prediction with a object detection model and remove double counting among overlapping images.
 
-<img src="tests/data/DSC_2520.JPG" alt="Sample Image 1" width="50%">
-<img src="tests/data/DSC_2522.JPG" alt="Sample Image 2" width="50%">
+<img src="tests/data/birds/DSC_2520.JPG" alt="Sample Image 1" width="50%">
+<img src="tests/data/birds/DSC_2522.JPG" alt="Sample Image 2" width="50%">
 
 # Installation
 
