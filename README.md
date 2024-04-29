@@ -10,6 +10,9 @@ A repo for visualizing airborne imagery, making a prediction with a object detec
 conda create python=3.10 --name DoubleCounting
 pip install -r requirements.txt
 ```
+# What does this repo do?
+
+* Remove
 
 # Testing
 

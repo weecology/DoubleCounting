@@ -96,106 +96,39 @@ def warp_points(homography_matrix, points):
 
   return warped_points
 
-def transform_2d_to_3d(x, y, intrinsic, extrinsic, depth_map=None, scalar_depth_range=None):
-  """Convert a 2d point to a 3d point using the camera intrinsic and extrinsic parameters.
-  Inspired by https://github.com/Totoro97/f2-nerf/blob/98f0daacb80e76724eb91519742c30fb35d0f72d/scripts/colmap2poses.py#L58
-  https://github.com/colmap/colmap/issues/1476
-  https://github.com/colmap/colmap/issues/1424
-  https://github.com/colmap/colmap/issues/797
-
+def warp_box(xmin, xmax, ymin, ymax, homography):
+  """Warp a bounding box using a homography matrix.
   Args:
-      x (numeric): x location of the point
-      y (numeric): y location of the point
-      intrinsic (np.array): colmap representation of intrinsic matrix in the format [f, cx, cy, k]
-      extrinsic (pycolmap extrinsic matrix ): cam_to_world representation of the extrinsic matrix for a given image to the reconstruction
-      depth_map (np.array, optional): The depth map of the image. Defaults to None.
-      scalar_depth_range (list, optional): The range of depths to consider. Defaults to [0,10].
+      xmin (float): The minimum x-coordinate of the bounding box.
+      xmax (float): The maximum x-coordinate of the bounding box.
+      ymin (float): The minimum y-coordinate of the bounding box.
+      ymax (float): The maximum y-coordinate of the bounding box.
+      homography (np.array): The homography matrix.
   Returns:
-      world_direction_vector (np.array): The 3D point in the world coordinate system.
+      tuple: The warped bounding box coordinates.
   """
-  # Add a dummy dimension to the 2D point for Z
-  p = np.array([x, y, 1]).T
+  points = np.array([[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]])
+  warped_points = warp_points(homography, points)
+  # Opencv pads the dimension in a unnecessary way
+  warped_points = warped_points.squeeze(1).astype(int)
+  warped_xmin = warped_points[:,0].min()
+  warped_xmax = warped_points[:,0].max()
+  warped_ymin = warped_points[:,1].min()
+  warped_ymax = warped_points[:,1].max()
 
-  if depth_map is not None:
-    # Get the depth value
-    depth = depth_map[int(y), int(x)]
-  else:
-    depth = 1
-  
-  # Create intrinsic matrix from the colmap format
-  intrinsic_matrix = create_intrinsic_matrix(f=intrinsic[0], cx=intrinsic[1], cy=intrinsic[2], k=0)
-  
-  # colmap format is world to camera, so we need to invert the matrix
-  rotation_matrix = extrinsic.rotation.matrix().T
-  translation = -rotation_matrix.dot(extrinsic.translation)
-  inverted_intrinsic = np.linalg.inv(intrinsic_matrix)
+  return warped_xmin, warped_xmax, warped_ymin, warped_ymax
 
-  # Transform pixel in Camera coordinate frame to World coordinate frame
-  direction_vector = inverted_intrinsic.dot(p)
-  
-  # Normalize the direction vector
-  direction_vector = direction_vector / np.linalg.norm(direction_vector)
-  world_direction_vector =  (rotation_matrix.dot(direction_vector))
-
-  # Get Camera origin
-  cam = np.array([0,0,0]).T
-  cam_world = translation + (rotation_matrix @ cam)
-
-  points3D = []
-  if scalar_depth_range:
-    for depth in range(scalar_depth_range[0], scalar_depth_range[1]):
-      world_position = translation +  world_direction_vector * depth
-      points3D.append(world_position)
-  else:
-    world_position = translation + world_direction_vector * depth
-    world_position = world_position / np.linalg.norm(world_position)
-    points3D.append(world_position)
-      
-  return points3D
-
-def create_intrinsic_matrix(f, cx, cy, k=0):
-  """
-  Creates an intrinsic camera matrix from focal length, principal point, and distortion coefficient. With some inspiration from Google Gemini. 
-
-  Args:
-      f (float): Focal length of the camera.
-      cx (float): X-coordinate of the principal point.
-      cy (float): Y-coordinate of the principal point.
-      k (float, optional): Distortion coefficient (default: 0).
-
-  Returns:
-      numpy.ndarray: The 3x3 intrinsic camera matrix.
-  """
-  # Create the base matrix with zeros
-  intrinsic_matrix = np.zeros((3, 3))
-
-  # Assign focal length values
-  intrinsic_matrix[0, 0] = f
-  intrinsic_matrix[1, 1] = f
-
-  # Set principal point coordinates
-  intrinsic_matrix[0, 2] = cx
-  intrinsic_matrix[1, 2] = cy
-
-  # Add skew factor if provided (typically assumed to be 0)
-  intrinsic_matrix[1, 0] = k  # Adjust based on your distortion model # This should be 0.
-
-  # Set the last element to 1
-  intrinsic_matrix[2, 2] = 1
-
-  return intrinsic_matrix
-
-def align_prediction(predictions, intrinsic, extrinsic, depth_map=None):
+def align_predictions(predictions, homography_matrix):
   """Align the predictions to the SfM model.
-  For camera intrinsic parameters defined in calibration matrix K(3,3), Transformation matrix, M = [R | t] (3,4)
-
+  
+  This function takes in a DataFrame of predictions containing bounding box coordinates and aligns them to the SfM (Structure from Motion) model using a homography matrix.
+  
   Args:
-    predictions (DataFrame): The predictions dataframe containing the bounding box predictions.
-    intrinsic (array): The intrinsic camera matrix.
-    extrinsic (array): The extrinsic camera matrix.
+    predictions (DataFrame): The predictions DataFrame containing the bounding box predictions.
+    homography_matrix (array): The homography matrix used for alignment.
   
   Returns:
-    DataFrame: The aligned predictions.
+    DataFrame: The aligned predictions DataFrame.
   """
   transformed_predictions = predictions.copy(deep=True)
   for index, row in transformed_predictions.iterrows():
@@ -203,25 +136,61 @@ def align_prediction(predictions, intrinsic, extrinsic, depth_map=None):
     ymin = row['ymin']
     xmax = row['xmax']
     ymax = row['ymax']
-    transformed_xmin, transformed_ymin, transformed_zmin = transform_2d_to_3d(xmin, ymin, intrinsic, extrinsic, depth_map)
-    transformed_xmax, transformed_ymax, transformed_zmax = transform_2d_to_3d(xmax, ymax, intrinsic, extrinsic, depth_map)
-    x_centroid = (xmin + xmax) / 2
-    y_centroid = (ymin + ymax) / 2
-    transformed_x_centroid, transformed_y_centroid, transformed_z_centroid = transform_2d_to_3d(x_centroid, y_centroid, intrinsic, extrinsic)
+    warp_boxed = warp_box(xmin, xmax, ymin, ymax, homography_matrix)
+    transformed_predictions.loc[index, 'xmin'] = warp_boxed[0]
+    transformed_predictions.loc[index, 'xmax'] = warp_boxed[1]
+    transformed_predictions.loc[index, 'ymin'] = warp_boxed[2]
+    transformed_predictions.loc[index, 'ymax'] = warp_boxed[3]
 
-    # Update the transformed predictions
-    transformed_predictions.at[index, 'xmin'] = transformed_xmin
-    transformed_predictions.at[index, 'ymin'] = transformed_ymin
-    transformed_predictions.at[index, 'xmax'] = transformed_xmax
-    transformed_predictions.at[index, 'ymax'] = transformed_ymax
-
-    transformed_predictions.at[index, 'x_centroid'] = transformed_x_centroid
-    transformed_predictions.at[index, 'y_centroid'] = transformed_y_centroid
-    transformed_predictions.at[index, 'z_centroid'] = transformed_z_centroid
-  
   return transformed_predictions
 
-def align_and_delete(model, predictions, threshold=0.5, image_dir=None, visualize=False):
+def remove_predictions(predictions, threshold=0.1, strategy='highest-score'):
+  """
+  Remove overlapping predictions using non-max suppression.
+
+  Args:
+    predictions (DataFrame): A pandas DataFrame containing prediction data.
+    threshold (float, optional): The threshold value for non-max suppression. Default is 0.1.
+    strategy (str, optional): The strategy to use to remove duplicate detection, 'Highest-score' selects the better scoring box, 'left-hand' selects the box from the earlier image, 'right-hand' selects the box from the later image. Default is 'highest_score'.
+
+  Returns:
+    DataFrame: A filtered DataFrame containing non-overlapping predictions.
+  """
+  if strategy == "highest-score":
+    # Perform non-max suppression on aligned predictions
+    # Convert bounding box coordinates to torch tensors
+    boxes = torch.tensor(predictions[['xmin', 'ymin', 'xmax', 'ymax']].values)
+
+    # Convert scores to torch tensor
+    scores = torch.tensor(predictions['score'].values)
+
+    # Perform non-max suppression
+    keep = torchvision.ops.nms(boxes, scores, threshold)
+
+    # Filter the original dataframe based on the keep indices
+    filtered_df = predictions.iloc[keep]
+  else:
+    left_hand_image = predictions[predictions.image_path == predictions.image_path.unique()[0]]
+    right_hand_image = predictions[predictions.image_path == predictions.image_path.unique()[1]]
+    left_hand_image["box"] = left_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
+    right_hand_image["box"] = right_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
+    left_hand_image = gpd.GeoDataFrame(left_hand_image, geometry="box")
+    right_hand_image = gpd.GeoDataFrame(right_hand_image, geometry='box')
+
+    # Join the two dataframes
+    joined = gpd.sjoin(left_hand_image, right_hand_image, how='inner', op='intersects')
+
+    if strategy == "left-hand":
+      # Where there is overlap, remove the right hand image
+      filtered_df = predictions[~predictions.index.isin(joined.index_right)]
+    else:
+      # Where there is overlap, remove the left hand image
+      filtered_df = predictions[~predictions.index.isin(joined.index_left)]
+  
+  return filtered_df
+
+
+def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_dir=None, visualize=True, strategy='highest_score'):
   """
   Given a set of images and predictions, align the images using the sfm_model and delete overlapping images.
 
@@ -236,73 +205,38 @@ def align_and_delete(model, predictions, threshold=0.5, image_dir=None, visualiz
     DataFrame: The filtered predictions dataframe after aligning and deleting overlapping images.
   """
   # Load the SfM model  
-  references_registered = [model.images[i].name for i in model.reg_image_ids()]
   image_names = predictions.image_path.unique()
+  image_names.sort()
 
-  # Intrinsic camera matrix
-  intrinsic = model.cameras[1].params
-  camera = model.cameras[1]
-
+  # For each image, align with the next image
   aligned_predictions_across_images = []
-  for image_name in image_names:
-    image_predictions = predictions[predictions.image_path == image_name]
-    references_registered = [model.images[i].name for i in model.reg_image_ids()]
-    try:
-      image_index = references_registered.index(image_name)
-      # Careful with the indexing here, as the image_index is based on the registered images, not sorted.
-      model_index = model.reg_image_ids()[image_index]
-    except ValueError:
-      continue
-    image = model.images[model_index]
-    extrinsic = image.cam_from_world
+  for index, image_name in enumerate(image_names[:-1]):
+    src = image_name
+    dst = image_names[index + 1]
+    
+    # Compute homography   
+    src_image_name = predictions.image_path.unique()[0]
+    dst_image_name = predictions.image_path.unique()[1]
+    homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
+    src_image_predictions = predictions[predictions.image_path == src_image_name]
+    
+    aligned_predictions = align_predictions(predictions=src_image_predictions, homography_matrix=homography["H"])
 
-    # Align the predictions
-    aligned_predictions = align_prediction(image_predictions, intrinsic, extrinsic, depth_map=None)
-    aligned_predictions_across_images.append(aligned_predictions) 
+    # Combine predictions in source and dst images for removal
+    predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst]])
+    remaining_predictions = remove_predictions(predictions_to_remove, threshold=threshold, strategy=strategy)
+
+    # Remove overlapping predictions
+    aligned_predictions_across_images.append(remaining_predictions) 
   
   aligned_predictions_across_images = pd.concat(aligned_predictions_across_images)
 
-  # View the aligned predictions using geopandas
-  gdf = gpd.GeoDataFrame(aligned_predictions_across_images,
-                        geometry=gpd.points_from_xy(aligned_predictions_across_images.x_centroid,
-                                                     aligned_predictions_across_images.y_centroid))
   # color by image name
-  if visualize:
-    gdf.plot(column='image_path', figsize=(10, 10))
-    pyplot.show()
-
+  if visualize:  
     # View aligned bounding boxes
-    gdf['box'] = gdf.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
-    gdf = gpd.GeoDataFrame(gdf, geometry='box')
+    aligned_predictions_across_images['box'] = aligned_predictions_across_images.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
+    gdf = gpd.GeoDataFrame(aligned_predictions_across_images, geometry='box')
     gdf.plot(column='image_path', figsize=(10, 10))
     pyplot.show()
 
-    #plot images and keypoints
-    # plot_images([read_image(image_dir / x) for x in image_names], dpi=200)
-    # keypoints = []
-    # for image_name in image_names:
-    #   image_predictions = predictions[predictions.image_path == image_name]
-    #   keypoints.append(image_predictions[['x_centroid', 'y_centroid']].values)
-    # plot_keypoints(keypoints)
-
-    # Plot the images and keypoints
-    visualization.visualize_sfm_2d(model, image_dir, color_by='visibility', n=2)   
-    
-    fig = viz_3d.init_figure() 
-    viz_3d.plot_reconstruction(fig, model)
-    fig.show()
-
-  # Perform non-max suppression on aligned predictions
-  # Convert bounding box coordinates to torch tensors
-  boxes = torch.tensor(aligned_predictions_across_images[['xmin', 'ymin', 'xmax', 'ymax']].values)
-
-  # Convert scores to torch tensor
-  scores = torch.tensor(aligned_predictions_across_images['score'].values)
-
-  # Perform non-max suppression
-  keep = torchvision.ops.nms(boxes, scores, threshold)
-
-  # Filter the original dataframe based on the keep indices
-  filtered_df = predictions.iloc[keep]
-
-  return filtered_df
+  return aligned_predictions_across_images
