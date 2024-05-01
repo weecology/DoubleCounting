@@ -218,7 +218,7 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
             w = row["xmax"] - row["xmin"]
             h = row["ymax"] - row["ymin"]
             # Draw bounding box
-            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 0, 0), 6)
+            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 0, 0), 7)
         unique_predictions_image = final_predictions[final_predictions["image_path"] == image_path]
         for index, row in unique_predictions_image.iterrows():
             x = row["xmin"]
@@ -226,7 +226,7 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
             w = row["xmax"] - row["xmin"]
             h = row["ymax"] - row["ymin"]
             # Draw bounding box
-            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 192, 203), 4)
+            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (182, 192, 255), 5)
         axs[i].imshow(image[:,:,::-1])
         axs[i].set_title(f"Final predictions for {image_path}")
 

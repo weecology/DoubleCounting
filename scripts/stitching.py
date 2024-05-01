@@ -144,7 +144,7 @@ def align_predictions(predictions, homography_matrix):
 
   return transformed_predictions
 
-def remove_predictions(original_predictions, aligned_predictions, threshold=0.1, strategy='highest-score'):
+def remove_predictions(src_predictions, dst_predictions, aligned_predictions, threshold=0.1, strategy='highest-score'):
   """
   Remove overlapping predictions using non-max suppression.
 
@@ -156,40 +156,45 @@ def remove_predictions(original_predictions, aligned_predictions, threshold=0.1,
   Returns:
     DataFrame: A filtered DataFrame containing non-overlapping predictions.
   """
+  dst_and_aligned_predictions = pd.concat([aligned_predictions, dst_predictions])
   if strategy == "highest-score":
     # Perform non-max suppression on aligned predictions
     # Convert bounding box coordinates to torch tensors
-    boxes = torch.tensor(aligned_predictions[['xmin', 'ymin', 'xmax', 'ymax']].values)
+    boxes = torch.tensor(dst_and_aligned_predictions[['xmin', 'ymin', 'xmax', 'ymax']].values)
 
     # Convert scores to torch tensor
-    scores = torch.tensor(aligned_predictions['score'].values)
+    scores = torch.tensor(dst_and_aligned_predictions['score'].values)
 
     # Perform non-max suppression
     keep = torchvision.ops.nms(boxes, scores, threshold)
-    indices_to_keep = aligned_predictions.iloc[keep].box_id
-
-    # Filter the original dataframe based on the keep indices
-    filtered_df = original_predictions[original_predictions.box_id.isin(indices_to_keep)]
+    indices_to_keep = dst_and_aligned_predictions.iloc[keep]
+    
+    #Split into source and destination
+    src_filtered = src_predictions[src_predictions.box_id.isin(indices_to_keep.box_id)]
+    dst_filtered = dst_predictions[dst_predictions.box_id.isin(indices_to_keep.box_id)]
 
   else:
-    left_hand_image = aligned_predictions[aligned_predictions.image_path == aligned_predictions.image_path.unique()[0]]
-    right_hand_image = aligned_predictions[aligned_predictions.image_path == aligned_predictions.image_path.unique()[1]]
-    left_hand_image["box"] = left_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
-    right_hand_image["box"] = right_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
-    left_hand_image = gpd.GeoDataFrame(left_hand_image, geometry="box")
-    right_hand_image = gpd.GeoDataFrame(right_hand_image, geometry='box')
+    aligned_predictions["box"] = aligned_predictions.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
+    dst_predictions["box"] = dst_predictions.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
+    aligned_gdf = gpd.GeoDataFrame(aligned_predictions, geometry="box")
+    dst_gdf = gpd.GeoDataFrame(dst_predictions, geometry='box')
 
     # Join the two dataframes
-    joined = gpd.sjoin(left_hand_image, right_hand_image, how='inner', op='intersects')
+    joined = gpd.sjoin(aligned_gdf, dst_gdf, how='inner', op='intersects')
 
     if strategy == "left-hand":
       # Where there is overlap, remove the right hand image
-      filtered_df = original_predictions[~original_predictions.box_id.isin(joined.box_id)]
+      src_indices_to_keep = src_predictions.box_id
+      dst_indices_to_keep = dst_predictions[~dst_predictions.box_id.isin(joined.box_id_right)].box_id
     else:
       # Where there is overlap, remove the left hand image
-      filtered_df = original_predictions[~original_predictions.box_id.isin(joined.box_id)]
-  
-  return filtered_df
+      src_indices_to_keep = src_predictions[~src_predictions.box_id.isin(joined.box_id_left)].box_id
+      dst_indices_to_keep = dst_predictions.box_id
+
+    src_filtered = src_predictions[src_predictions.box_id.isin(src_indices_to_keep)]
+    dst_filtered = dst_predictions[dst_predictions.box_id.isin(dst_indices_to_keep)]
+
+  return src_filtered, dst_filtered
 
 
 def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_dir=None, strategy='highest_score'):
@@ -216,23 +221,30 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
   # Only run images registered in the model
   image_names = [image_name for image_name in image_names if model.find_image_with_name(image_name) is not None]
 
-  # For each image, align with the next image
-  aligned_predictions_across_images = []
-  for index, image_name in enumerate(image_names[:-1]):
-    src = image_name
-    dst = image_names[index + 1]
-    
-    # Compute homography   
-    homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src, image2_name=dst)
-    src_image_predictions = predictions[predictions.image_path == src].copy(deep=True)
-    aligned_predictions = align_predictions(predictions=src_image_predictions, homography_matrix=homography["H"])
+  # Create a dictionary of prediction to filter
+  filtered_predictions = {}
+  for x in image_names:
+    filtered_predictions[x] = predictions[predictions.image_path == x]
+
+  for index, src_image_name in enumerate(image_names):
+    for dst_image_name in image_names[index+1:]:
+      # Compute homography   
+      homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
+      src_image_predictions = filtered_predictions[src_image_name]
+      dst_image_predictions = filtered_predictions[dst_image_name]
       
-    # Combine predictions in source and dst images for removal
-    predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst].copy(deep=True)])    
-    original_predictions = predictions[predictions.image_path == src].copy(deep=True)
-    remaining_predictions = remove_predictions(aligned_predictions=predictions_to_remove, original_predictions=original_predictions, threshold=threshold, strategy=strategy)
-    aligned_predictions_across_images.append(remaining_predictions) 
+      # Align and remove
+      aligned_predictions = align_predictions(predictions=src_image_predictions, homography_matrix=homography["H"])   
+      src_filtered_predictions, dst_filtered_predictions = remove_predictions(
+        src_predictions=src_image_predictions,
+        dst_predictions=dst_image_predictions,
+        aligned_predictions=aligned_predictions,
+        threshold=threshold,
+        strategy=strategy)
+      filtered_predictions[src_image_name] = src_filtered_predictions
+      filtered_predictions[dst_image_name] = dst_filtered_predictions
   
-  filtered_predictions = pd.concat(aligned_predictions_across_images)
+  # Concatenate the filtered predictions
+  filtered_predictions = pd.concat(filtered_predictions.values())
 
   return filtered_predictions
