@@ -158,7 +158,6 @@ def test_align_predictions(predictions, test_data_dir, model_birds):
 
     # Delete predictions and show the result
     predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst_image_name]])
-
     remaining_predictions = remove_predictions(predictions_to_remove)
 
     # Final predictions
@@ -181,19 +180,57 @@ def test_align_predictions(predictions, test_data_dir, model_birds):
 def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
     image_dir = Path(os.path.join(os.path.dirname(__file__),"data/birds"))
     output_path = Path(os.path.join(test_data_dir, "output_birds"))
-    unique_predictions = align_and_delete(predictions=predictions, model=model_birds, image_dir=image_dir, visualize=True, matching_h5_file=output_path / "matches.h5", strategy=strategy)
+    images_to_plot = predictions["image_path"].unique()
+    images_to_plot.sort()
+    
+    fig, axs = pyplot.subplots(3, 2, figsize=(10, 10))
+    axs = axs.flatten()
+
+    # for i, image_path in enumerate(images_to_plot):
+    #     image = cv2.imread(os.path.join(image_dir.__str__(), image_path))
+    #     original_predictions = predictions[predictions["image_path"] == image_path]
+    #     for index, row in original_predictions.iterrows():
+    #         x = row["xmin"]
+    #         y = row["ymin"]
+    #         w = row["xmax"] - row["xmin"]
+    #         h = row["ymax"] - row["ymin"]
+    #         # Draw bounding box
+    #         cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 0, 0), 5)
+    #     axs[i].imshow(image[:,:,::-1])
+    #     axs[i].set_title(f"Original predictions for {image_path}")
+    # pyplot.tight_layout()
+    # pyplot.show()
+
+    final_predictions = align_and_delete(predictions=predictions, model=model_birds, image_dir=image_dir, matching_h5_file=output_path / "matches.h5", strategy=strategy)
 
     # For each image in predictions, plot predictions using geopandas and use the image_path as the background using rasterio
-    for image_path in unique_predictions["image_path"]:
+    fig, axs = pyplot.subplots(2, 2, figsize=(15, 10))
+    axs = axs.flatten()
+    images_to_plot = final_predictions["image_path"].unique()
+    images_to_plot.sort()
+    for i, image_path in enumerate(images_to_plot):
         image = cv2.imread(os.path.join(image_dir.__str__(), image_path))
-        unique_predictions_image = unique_predictions[unique_predictions["image_path"] == image_path]
+        # Show originals as well
+        original_predictions = predictions[predictions["image_path"] == image_path]
+        for index, row in original_predictions.iterrows():
+            x = row["xmin"]
+            y = row["ymin"]
+            w = row["xmax"] - row["xmin"]
+            h = row["ymax"] - row["ymin"]
+            # Draw bounding box
+            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 0, 0), 6)
+        unique_predictions_image = final_predictions[final_predictions["image_path"] == image_path]
         for index, row in unique_predictions_image.iterrows():
             x = row["xmin"]
             y = row["ymin"]
             w = row["xmax"] - row["xmin"]
             h = row["ymax"] - row["ymin"]
             # Draw bounding box
-            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 4)
+            cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (255, 192, 203), 4)
+        axs[i].imshow(image[:,:,::-1])
+        axs[i].set_title(f"Final predictions for {image_path}")
 
-        pyplot.imshow(image)
-        pyplot.show()
+    pyplot.tight_layout()
+    pyplot.show()
+
+    print("Tests passed!")

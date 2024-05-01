@@ -124,7 +124,7 @@ def align_predictions(predictions, homography_matrix):
   This function takes in a DataFrame of predictions containing bounding box coordinates and aligns them to the SfM (Structure from Motion) model using a homography matrix.
   
   Args:
-    predictions (DataFrame): The predictions DataFrame containing the bounding box predictions.
+    predictions (DataFrame): The predictions DataFrame containing the bounding box predictions. 
     homography_matrix (array): The homography matrix used for alignment.
   
   Returns:
@@ -144,12 +144,12 @@ def align_predictions(predictions, homography_matrix):
 
   return transformed_predictions
 
-def remove_predictions(predictions, threshold=0.1, strategy='highest-score'):
+def remove_predictions(original_predictions, aligned_predictions, threshold=0.1, strategy='highest-score'):
   """
   Remove overlapping predictions using non-max suppression.
 
   Args:
-    predictions (DataFrame): A pandas DataFrame containing prediction data.
+    predictions (DataFrame): A pandas DataFrame containing aligned prediction data. Must have a box_id column that matches original and aligned predictions.
     threshold (float, optional): The threshold value for non-max suppression. Default is 0.1.
     strategy (str, optional): The strategy to use to remove duplicate detection, 'Highest-score' selects the better scoring box, 'left-hand' selects the box from the earlier image, 'right-hand' selects the box from the later image. Default is 'highest_score'.
 
@@ -159,19 +159,21 @@ def remove_predictions(predictions, threshold=0.1, strategy='highest-score'):
   if strategy == "highest-score":
     # Perform non-max suppression on aligned predictions
     # Convert bounding box coordinates to torch tensors
-    boxes = torch.tensor(predictions[['xmin', 'ymin', 'xmax', 'ymax']].values)
+    boxes = torch.tensor(aligned_predictions[['xmin', 'ymin', 'xmax', 'ymax']].values)
 
     # Convert scores to torch tensor
-    scores = torch.tensor(predictions['score'].values)
+    scores = torch.tensor(aligned_predictions['score'].values)
 
     # Perform non-max suppression
     keep = torchvision.ops.nms(boxes, scores, threshold)
+    indices_to_keep = aligned_predictions.iloc[keep].box_id
 
     # Filter the original dataframe based on the keep indices
-    filtered_df = predictions.iloc[keep]
+    filtered_df = original_predictions[original_predictions.box_id.isin(indices_to_keep)]
+
   else:
-    left_hand_image = predictions[predictions.image_path == predictions.image_path.unique()[0]]
-    right_hand_image = predictions[predictions.image_path == predictions.image_path.unique()[1]]
+    left_hand_image = aligned_predictions[aligned_predictions.image_path == aligned_predictions.image_path.unique()[0]]
+    right_hand_image = aligned_predictions[aligned_predictions.image_path == aligned_predictions.image_path.unique()[1]]
     left_hand_image["box"] = left_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
     right_hand_image["box"] = right_hand_image.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
     left_hand_image = gpd.GeoDataFrame(left_hand_image, geometry="box")
@@ -182,15 +184,15 @@ def remove_predictions(predictions, threshold=0.1, strategy='highest-score'):
 
     if strategy == "left-hand":
       # Where there is overlap, remove the right hand image
-      filtered_df = predictions[~predictions.index.isin(joined.index_right)]
+      filtered_df = original_predictions[~original_predictions.box_id.isin(joined.box_id)]
     else:
       # Where there is overlap, remove the left hand image
-      filtered_df = predictions[~predictions.index.isin(joined.index_left)]
+      filtered_df = original_predictions[~original_predictions.box_id.isin(joined.box_id)]
   
   return filtered_df
 
 
-def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_dir=None, visualize=True, strategy='highest_score'):
+def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_dir=None, strategy='highest_score'):
   """
   Given a set of images and predictions, align the images using the sfm_model and delete overlapping images.
 
@@ -199,14 +201,20 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
     predictions (DataFrame): The predictions dataframe containing the bounding box predictions.
     threshold (float, optional): The threshold value for non-max suppression. Defaults to 0.5.
     image_dir (Path, optional): Path to the directory containing the images. Defaults to None.
-    visualize (bool, optional): Whether to visualize the aligned predictions. Defaults to False.
 
   Returns:
     DataFrame: The filtered predictions dataframe after aligning and deleting overlapping images.
   """
+  # TO DO What happens if the prediction is in more than 2 images. What is happening with the final image, needs to be handled seperately from the rest of the images.
   # Load the SfM model  
   image_names = predictions.image_path.unique()
   image_names.sort()
+
+  # Make sure the indices are reset and unique
+  predictions["box_id"] = predictions.reset_index().index
+
+  # Only run images registered in the model
+  image_names = [image_name for image_name in image_names if model.find_image_with_name(image_name) is not None]
 
   # For each image, align with the next image
   aligned_predictions_across_images = []
@@ -215,28 +223,16 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
     dst = image_names[index + 1]
     
     # Compute homography   
-    src_image_name = predictions.image_path.unique()[0]
-    dst_image_name = predictions.image_path.unique()[1]
-    homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
-    src_image_predictions = predictions[predictions.image_path == src_image_name]
-    
+    homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src, image2_name=dst)
+    src_image_predictions = predictions[predictions.image_path == src].copy(deep=True)
     aligned_predictions = align_predictions(predictions=src_image_predictions, homography_matrix=homography["H"])
-
+      
     # Combine predictions in source and dst images for removal
-    predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst]])
-    remaining_predictions = remove_predictions(predictions_to_remove, threshold=threshold, strategy=strategy)
-
-    # Remove overlapping predictions
+    predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst].copy(deep=True)])    
+    original_predictions = predictions[predictions.image_path == src].copy(deep=True)
+    remaining_predictions = remove_predictions(aligned_predictions=predictions_to_remove, original_predictions=original_predictions, threshold=threshold, strategy=strategy)
     aligned_predictions_across_images.append(remaining_predictions) 
   
-  aligned_predictions_across_images = pd.concat(aligned_predictions_across_images)
+  filtered_predictions = pd.concat(aligned_predictions_across_images)
 
-  # color by image name
-  if visualize:  
-    # View aligned bounding boxes
-    aligned_predictions_across_images['box'] = aligned_predictions_across_images.apply(lambda row: box(row['xmin'], row['ymin'], row['xmax'], row['ymax']), axis=1)
-    gdf = gpd.GeoDataFrame(aligned_predictions_across_images, geometry='box')
-    gdf.plot(column='image_path', figsize=(10, 10))
-    pyplot.show()
-
-  return aligned_predictions_across_images
+  return filtered_predictions
