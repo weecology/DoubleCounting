@@ -97,7 +97,7 @@ pytest tests/test_stitching.py -k test_align_and_delete
 ## Examples
 
 ## 2d homography
-In this example there are four images of a bird colony. In blue are the original object detections for class 'Bird', in pink are the retained detections after double counting.
+In this example there are four images of a bird colony. In blue are the original object detections for class 'Bird', in pink are the retained detections after double counting. Double click to zoom in.
 
 ![](public/example.png)
 
