@@ -203,7 +203,6 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
 
     final_predictions = align_and_delete(predictions=predictions, model=model_birds, image_dir=image_dir, matching_h5_file=output_path / "matches.h5", strategy=strategy)
 
-    # For each image in predictions, plot predictions using geopandas and use the image_path as the background using rasterio
     fig, axs = pyplot.subplots(2, 2, figsize=(15, 10))
     axs = axs.flatten()
     images_to_plot = final_predictions["image_path"].unique()

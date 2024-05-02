@@ -19,7 +19,7 @@ python scripts/look_for_images.sh \
     --source UFdropbox:/Airplane_images_to_predict/ \
     --destination /blue/ewhite/everglades/Airplane/images_to_predict
 
-python scripts/predict.py \
+python pipeline.py \
     --model_path /blue/ewhite/everglades/Zooniverse/20220910_182547/species_model.pl \
     --save_dir /blue/ewhite/everglades/Airplane/predictions \
     --user ben \

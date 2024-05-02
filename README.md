@@ -14,6 +14,8 @@ pip install -r requirements.txt
 ```
 # What does this repo do?
 
+Given a series of overlapping images and bounding box predictions this module finds the unique objects among images.
+
 * Reconstruct a structure-from-motion model of overlapping images
 
 ```
