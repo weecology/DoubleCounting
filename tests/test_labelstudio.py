@@ -3,7 +3,7 @@ from scripts.labelstudio import upload
 import os
 import pytest
 
-@pytest.skipif("/blue/ewhite/everglades/label_studio/label_studio_api_key.txt" not in os.listdir("/blue/ewhite/everglades/label_studio/"), reason="No API key found")
+@pytest.mark.skipif("/blue/ewhite/everglades/label_studio/label_studio_api_key.txt" not in os.listdir("/blue/ewhite/everglades/label_studio/"), reason="No API key found")
 def test_upload_to_labelstudio():        
     # Set the Label studio API key as env variable
     with open("/blue/ewhite/everglades/label_studio/label_studio_api_key.txt", "r") as file:
