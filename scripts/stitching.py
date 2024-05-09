@@ -35,10 +35,6 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
   sfm_dir = output_path / 'sfm'
   features = output_path / 'features.h5'
   matches = output_path / 'matches.h5'
-  results = output_path / 'results.txt'
-  reference_sfm = output_path / "sfm_superpoint+superglue"  # the SfM model we will build
-  database_path = output_path / "database.db"
-  mvs_path = output_path / "mvs"
 
   # Set feature type
   feature_conf = extract_features.confs[feature_type]
@@ -78,8 +74,15 @@ def compute_homography_matrix(model, h5_file, image1_name, image2_name):
   points1 = [image1.points2D[i].xy for i in matches[:,0]]
   points2 = [image2.points2D[i].xy for i in matches[:,1]]
 
+  # Raise error if points are empty
+  if len(points1) == 0 or len(points2) == 0:
+    raise ValueError("No matching points found between images {} and {}".format(image1_name, image2_name))
+  
   m = pycolmap.homography_matrix_estimation(points1, points2)
 
+  if m is None:
+    raise ValueError("Homography matrix estimation failed for images {} and {}".format(image1_name, image2_name))
+  
   return m
 
 def warp_points(homography_matrix, points):
@@ -210,7 +213,6 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
   Returns:
     DataFrame: The filtered predictions dataframe after aligning and deleting overlapping images.
   """
-  # TO DO What happens if the prediction is in more than 2 images. What is happening with the final image, needs to be handled seperately from the rest of the images.
   # Load the SfM model  
   image_names = predictions.image_path.unique()
   image_names.sort()
@@ -229,7 +231,10 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
   for index, src_image_name in enumerate(image_names):
     for dst_image_name in image_names[index+1:]:
       # Compute homography   
-      homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
+      try:
+        homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
+      except ValueError:
+        continue
       src_image_predictions = filtered_predictions[src_image_name]
       dst_image_predictions = filtered_predictions[dst_image_name]
       

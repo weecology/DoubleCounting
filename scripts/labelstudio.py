@@ -66,14 +66,14 @@ def import_image_tasks(label_studio_project, image_names, local_image_dir, predi
         label_studio_project (LabelStudioProject): The Label Studio project to import tasks into.
         image_names (list): A list of image names to import as tasks.
         local_image_dir (str): The local directory where the images are stored.
-        predictions (list, optional): A list of predictions corresponding to the image names. Defaults to None.
+        predictions (dict, optional): A dictionary containing the predictions for the images. Key is image name e.g. 'DSC_2577.JPG'
 
     Returns:
         None
     """
     tasks = []
     for image_name in image_names:
-        basename = os.path.splitext(os.path.basename(image_name))[0]
+        basename = os.path.basename(image_name)
         data_dict = {'image': os.path.join("/data/local-files/?d=input/", os.path.basename(image_name))}
         if predictions:
             prediction = predictions[basename]
@@ -241,7 +241,7 @@ def convert_json_to_dataframe(x, image_path):
     
     return df
 
-def upload(user, host, key_filename, label_studio_url, label_studio_project, images, preannotations, label_studio_folder):
+def upload(user, host, key_filename, label_studio_url, label_studio_project, images, preannotations, folder_name):
     """
     Uploads images to Label Studio and imports image tasks with preannotations.
 
@@ -253,7 +253,6 @@ def upload(user, host, key_filename, label_studio_url, label_studio_project, ima
         label_studio_project (str): The name of the Label Studio project.
         images (str): List of paths to the images to upload. Assumes that all images are in the same directory!
         preannotations (str): The csv files containing the preannotations.
-        label_studio_folder (str): The folder name in Label Studio where the images will be uploaded.
 
     Returns:
         None
@@ -262,7 +261,7 @@ def upload(user, host, key_filename, label_studio_url, label_studio_project, ima
     preannotations = {os.path.splitext(os.path.basename(preannotation))[0]: pd.read_csv(preannotation) for preannotation in preannotations}
     sftp_client = create_client(user=user, host=host, key_filename=key_filename)
     label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=label_studio_project)
-    upload_images(sftp_client=sftp_client, images=images)
+    upload_images(sftp_client=sftp_client, images=images, folder_name=folder_name)
     import_image_tasks(label_studio_project=label_studio_project, image_names=images, local_image_dir=os.path.dirname(images[0]), predictions=preannotations)
 
 
