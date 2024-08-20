@@ -20,7 +20,7 @@ python scripts/look_for_images.sh \
     --destination /blue/ewhite/everglades/Airplane/images_to_predict
 
 python pipeline.py \
-    --model_path /blue/ewhite/everglades/Zooniverse/20220910_182547/species_model.pl \
+    --model_path /blue/ewhite/everglades/Zooniverse/20230426_082517/species_model.pl \
     --save_dir /blue/ewhite/everglades/Airplane/predictions \
     --user ben \
     --host serenity.ifas.ufl.edu \
