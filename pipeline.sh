@@ -12,7 +12,7 @@
 #SBATCH --partition=gpu
 #SBATCH --gpus=1
 
-source activate EvergladesTools
+source activate DoubleCounting
 
 # Run the pipeline
 python scripts/look_for_images.sh \
