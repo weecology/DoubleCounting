@@ -17,7 +17,6 @@ def test_upload_to_labelstudio():
             host="serenity.ifas.ufl.edu",
             key_filename="/home/b.weinstein/.ssh/id_rsa.pub",
             label_studio_url="https://labelstudio.naturecast.org/",
-            label_studio_project="Airplane Photos",
             images=images,
             preannotations=predictions,
             label_studio_folder="/pgsql/retrieverdash/everglades-label-studio/everglades-data"

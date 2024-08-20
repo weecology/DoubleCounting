@@ -8,7 +8,7 @@ from label_studio_sdk import Client
 from PIL import Image
 from scripts.predict import predict
 
-def connect_to_label_studio(url, project_name):
+def connect_to_label_studio(url, project_name, label_config=None):
     """Connect to the Label Studio server.
     Args:
         port (int, optional): The port of the Label Studio server. Defaults to 8080.
@@ -19,9 +19,11 @@ def connect_to_label_studio(url, project_name):
     ls = Client(url=url, api_key=os.environ["LABEL_STUDIO_API_KEY"])
     ls.check_connection()
 
-    # Look up existing name
-    projects = ls.list_projects()
-    project = [x for x in projects if x.get_params()["title"] == project_name][0]
+    if label_config:
+        project = ls.start_project(title=project_name, label_config=label_config)
+    else:
+        projects = ls.list_projects()
+        project = [x for x in projects if x.get_params()["title"] == project_name][0]
 
     return project
 
@@ -241,7 +243,51 @@ def convert_json_to_dataframe(x, image_path):
     
     return df
 
-def upload(user, host, key_filename, label_studio_url, label_studio_project, images, preannotations, label_studio_folder):
+def create_label_config(predictions):
+    """
+    Creates a Label Studio XML configuration based on the provided predictions.
+
+    Args:
+        predictions (dict): A dictionary containing the preannotations for each image.
+
+    Returns:
+        str: The Label Studio XML configuration.
+    """
+
+    xml = '''<View>
+        <Header value="Please select everything you see on the image" />'''
+
+    for i, image_name in enumerate(predictions.keys()):
+        xml += f'''
+        <View style="display: flex;">
+            <View style="width: 49%; margin-right: 1.99%">
+                <Image name="img-{i+1}" value="{image_name}"/>
+                <Choices name="class-{i+1}" toName="img-{i+1}" choice="multiple">
+                    <Choice value="People" />
+                    <Choice value="Trees" />
+                    <Choice value="Animals" />
+                </Choices>
+            </View>
+
+            <View>
+                <Header value="Which one is clearer to you?" />
+                <Choices name="comparison-{i+1}" toName="img-{i+1}" showInline="true">
+                    <Choice value="Left" />
+                    <Choice value="Right" />
+                </Choices>
+            </View>
+        </View>'''
+
+    xml += '''
+    </View>'''
+
+    # Replace image placeholders with actual image names
+    for i, image_name in enumerate(predictions.keys()):
+        xml = xml.replace(f"$image{i+1}", image_name)
+
+    return xml
+
+def upload(user, host, key_filename, label_studio_url, images, preannotations, label_studio_folder):
     """
     Uploads images to Label Studio and imports image tasks with preannotations.
 
@@ -250,7 +296,6 @@ def upload(user, host, key_filename, label_studio_url, label_studio_project, ima
         host (str): The hostname for the SFTP connection.
         key_filename (str): The path to the private key file for the SFTP connection.
         label_studio_url (str): The URL of the Label Studio instance.
-        label_studio_project (str): The name of the Label Studio project.
         images (str): List of paths to the images to upload. Assumes that all images are in the same directory!
         preannotations (str): The csv files containing the preannotations.
         label_studio_folder (str): The folder name in Label Studio where the images will be uploaded.
@@ -261,7 +306,9 @@ def upload(user, host, key_filename, label_studio_url, label_studio_project, ima
     #Read each csv file and create a dictionary with the image name as the key and the dataframe as the value
     preannotations = {os.path.splitext(os.path.basename(preannotation))[0]: pd.read_csv(preannotation) for preannotation in preannotations}
     sftp_client = create_client(user=user, host=host, key_filename=key_filename)
-    label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=label_studio_project)
+    label_config = create_label_config(predictions=preannotations)
+    project_name = os.path.basename(images[0]).split("_")[0]
+    label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=project_name, label_config=label_config)
     upload_images(sftp_client=sftp_client, images=images)
     import_image_tasks(label_studio_project=label_studio_project, image_names=images, local_image_dir=os.path.dirname(images[0]), predictions=preannotations)
 
