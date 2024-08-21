@@ -183,7 +183,7 @@ def remove_predictions(src_predictions, dst_predictions, aligned_predictions, th
     dst_gdf = gpd.GeoDataFrame(dst_predictions, geometry='box')
 
     # Join the two dataframes
-    joined = gpd.sjoin(aligned_gdf, dst_gdf, how='inner', op='intersects')
+    joined = gpd.sjoin(aligned_gdf, dst_gdf, how='inner', predicate='intersects')
 
     if strategy == "left-hand":
       # Where there is overlap, remove the right hand image

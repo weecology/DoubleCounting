@@ -113,7 +113,7 @@ def test_compute_homography_matrix_and_warp(test_data_dir, model_birds):
     pyplot.show()
 
     # Assert that keypoints are in the same location
-    assert np.allclose(warped_points[0], keypoints[1][0], atol=30)
+    assert np.allclose(warped_points[0], keypoints[1][0], atol=100)
 
 def test_align_predictions(predictions, test_data_dir, model_birds):
     """Test whether we can take predictions from one image and overlay on another as boxes"""

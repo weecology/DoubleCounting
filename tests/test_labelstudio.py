@@ -23,7 +23,7 @@ def test_upload_to_labelstudio(tmpdir):
     upload(
             user="ben",
             host="serenity.ifas.ufl.edu",
-            key_filename="/Users/benweinstein/.ssh/id_rsa",
+            key_filename="/home/b.weinstein/.ssh/id_rsa",
             label_studio_url="https://labelstudio.naturecast.org/",
             images=images,
             preannotations=predictions,

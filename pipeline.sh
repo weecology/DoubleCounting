@@ -15,8 +15,8 @@
 source activate DoubleCounting
 
 # Run the pipeline
-python scripts/look_for_images.sh \
-    --source UFdropbox:/Airplane_images_to_predict/ \
+python scripts/look_for_images.py \
+    --source UFdropbox:Airplane_images_to_predict \
     --destination /blue/ewhite/everglades/Airplane/images_to_predict
 
 python pipeline.py \
@@ -26,6 +26,5 @@ python pipeline.py \
     --host serenity.ifas.ufl.edu \
     --key_filename /home/b.weinstein/.ssh/id_rsa.pub \
     --label_studio_url https://labelstudio.naturecast.org/ \
-    --label_studio_project "Airplane Photos" \
     --label_studio_folder '/pgsql/retrieverdash/everglades-label-studio/everglades-data' \
     --image_dir /blue/ewhite/everglades/Airplane/images_to_predict

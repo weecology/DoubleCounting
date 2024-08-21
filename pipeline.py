@@ -61,8 +61,6 @@ def wrapper(folder_path, args):
         host=args.host,
         key_filename=args.key_filename,
         label_studio_url=args.label_studio_url,
-        images=images,
-        preannotations=filtered_predictions,
         images=image_paths,
         preannotations=csv_files,
         folder_name=args.label_studio_folder
