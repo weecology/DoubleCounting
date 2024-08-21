@@ -4,28 +4,26 @@ from scripts.predict import predict
 import os
 import pytest
 
-@pytest.mark.skipif("label_studio_api_key.txt" not in os.listdir("/blue/ewhite/everglades/label_studio/"), reason="No API key found")
-def test_upload_to_labelstudio():        
+@pytest.mark.skipif("label_studio_api_key.txt" not in os.listdir("tests") , reason="No API key found")
+def test_upload_to_labelstudio(tmpdir):        
     # Set the Label studio API key as env variable
-    with open("/blue/ewhite/everglades/label_studio/label_studio_api_key.txt", "r") as file:
+    with open("tests/label_studio_api_key.txt", "r") as file:
         api_key = file.read().strip()
     os.environ["LABEL_STUDIO_API_KEY"] = api_key
 
-    images = ["tests/data/DSC_2520.JPG", "tests/data/DSC_2521.JPG"]
-    model_path = "/blue/ewhite/everglades/Zooniverse/20220910_182547/species_model.pl"
-    save_dir = "/blue/ewhite/everglades/Airplane/annotations"
+    images = ["tests/data/birds/DSC_2520.JPG", "tests/data/birds/DSC_2521.JPG"]
+    save_dir = tmpdir
     predictions = []
     
-    if os.path.exists(model_path):
-        image_paths = predict(image_dir="/blue/ewhite/everglades/Airplane/images_to_predict", save_dir=save_dir, model_path=model_path)
-        basename = os.path.splitext(os.path.basename(image_paths[0]))[0]
-        csv_path = os.path.join(save_dir, "{}.csv".format(basename))
-        predictions.append(csv_path)  
+    image_paths, predictions = predict(image_paths=images, save_dir=save_dir, model_path=None)
+    basename = os.path.splitext(os.path.basename(image_paths[0]))[0]
+    csv_path = os.path.join(save_dir, "{}.csv".format(basename))
+    predictions.append(csv_path)  
     
     upload(
             user="ben",
             host="serenity.ifas.ufl.edu",
-            key_filename="/home/b.weinstein/.ssh/id_rsa.pub",
+            key_filename="/Users/benweinstein/.ssh/id_rsa",
             label_studio_url="https://labelstudio.naturecast.org/",
             images=images,
             preannotations=predictions,

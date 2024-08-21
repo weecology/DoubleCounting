@@ -73,21 +73,16 @@ def import_image_tasks(label_studio_project, image_names, local_image_dir, predi
     Returns:
         None
     """
-    tasks = []
-    for image_name in image_names:
-        basename = os.path.basename(image_name)
-        data_dict = {'image': os.path.join("/data/local-files/?d=input/", os.path.basename(image_name))}
-        if predictions:
-            prediction = predictions[basename]
-            # Skip predictions if there are none
-            if prediction.empty:
-                result_dict = []
-            else:
-                result_dict = [label_studio_bbox_format(local_image_dir, prediction)]
-            upload_dict = {"data": data_dict, "predictions": result_dict}
-        tasks.append(upload_dict)
-    label_studio_project.import_tasks(tasks)
+    df = pd.concat([value for key,value in predictions.items()])
+    unique_images = df.image_path.unique()
+    data_dict = {}
+    for i, image_name in enumerate(unique_images):
+        data_dict["img{}".format(i+1)] = os.path.join("/data/local-files/?d=input/", os.path.basename(image_name))    
+    
+    image_json = label_studio_bbox_format(local_image_dir, df)
 
+    upload_dict = {"data": data_dict, "predictions": [image_json]}
+    label_studio_project.import_tasks(upload_dict)
 
 def download_completed_tasks(label_studio_project, train_csv_folder):
     """
@@ -177,7 +172,7 @@ def remove_annotated_images_remote_server(sftp_client, annotations, folder_name)
         sftp_client.rename(remote_path, archive_annotation_path)
         print(f"Archived {image} successfully")
 
-def label_studio_bbox_format(local_image_dir, preannotations, to_name="image", from_name="label"):
+def label_studio_bbox_format(local_image_dir, preannotations, from_name="label"):
     """
     Create a JSON string for a single image in the Label Studio API format.
 
@@ -194,6 +189,12 @@ def label_studio_bbox_format(local_image_dir, preannotations, to_name="image", f
     image_path = preannotations.image_path.unique()[0]
     original_width, original_height = Image.open(os.path.join(local_image_dir, os.path.basename(image_path))).size
 
+    #Unique images and their index
+    unique_images = preannotations.image_path.unique()
+    image_index_dict = {}
+    for index, image in enumerate(unique_images):
+        image_index_dict[image] = "img{}".format(index)
+
     for index, row in preannotations.iterrows():
         result = {
             "value": {
@@ -205,14 +206,14 @@ def label_studio_bbox_format(local_image_dir, preannotations, to_name="image", f
                 "rectanglelabels": [row["label"]]
             },
             "score": row["score"],
-            "to_name": "image",
+            "to_name": image_index_dict[row["image_path"]],
             "type": "rectanglelabels",
             "from_name": "label",
             "original_width": original_width,
             "original_height": original_height
         }
         predictions.append(result)
-    
+            
     return {"result": predictions}
 
 def convert_json_to_dataframe(x, image_path):
@@ -255,35 +256,22 @@ def create_label_config(predictions):
     """
 
     xml = '''<View>
-        <Header value="Please select everything you see on the image" />'''
+        <Header value="Select unique birds in each image to create a full colony count" />'''
 
     for i, image_name in enumerate(predictions.keys()):
         xml += f'''
-        <View style="display: flex;">
-            <View style="width: 49%; margin-right: 1.99%">
-                <Image name="img-{i+1}" value="{image_name}"/>
-                <Choices name="class-{i+1}" toName="img-{i+1}" choice="multiple">
+            <View style="display: flex;">
+                <View style="width: {100/len(predictions)}%; margin-right: 1.99%">
+                <Image name="img{i+1}" value="$img{i+1}"/>
+                <Choices name="class-{i+1}" toName="img{i+1}" choice="multiple">
                     <Choice value="People" />
                     <Choice value="Trees" />
-                    <Choice value="Animals" />
                 </Choices>
-            </View>
-
-            <View>
-                <Header value="Which one is clearer to you?" />
-                <Choices name="comparison-{i+1}" toName="img-{i+1}" showInline="true">
-                    <Choice value="Left" />
-                    <Choice value="Right" />
-                </Choices>
-            </View>
-        </View>'''
+                </View>
+            </View>'''
 
     xml += '''
     </View>'''
-
-    # Replace image placeholders with actual image names
-    for i, image_name in enumerate(predictions.keys()):
-        xml = xml.replace(f"$image{i+1}", image_name)
 
     return xml
 

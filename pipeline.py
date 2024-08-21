@@ -17,7 +17,6 @@ parser.add_argument('--host', type=str, help='The hostname or IP address of the 
 parser.add_argument('--image_dir', type=str, help='Directory containing the images to predict')
 parser.add_argument('--key_filename', type=str, help='The path to the private key file for authentication')
 parser.add_argument('--label_studio_url', type=str, help='The URL of the Label Studio server')
-parser.add_argument('--label_studio_project', type=str, help='The name of the Label Studio project')
 parser.add_argument("--label_studio_folder", type=str, help="The name of the folder on the remote server where the images will be uploaded")
 
 args = parser.parse_args()
@@ -64,7 +63,6 @@ def wrapper(folder_path, args):
         label_studio_url=args.label_studio_url,
         images=images,
         preannotations=filtered_predictions,
-        label_studio_folder=args.label_studio_folder,
         images=image_paths,
         preannotations=csv_files,
         folder_name=args.label_studio_folder
