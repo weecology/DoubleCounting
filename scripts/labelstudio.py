@@ -208,7 +208,7 @@ def label_studio_bbox_format(local_image_dir, preannotations, from_name="label")
             "score": row["score"],
             "to_name": image_index_dict[row["image_path"]],
             "type": "rectanglelabels",
-            "from_name": "label",
+            "from_name": image_index_dict[row["image_path"]].replace("img", "label"),
             "original_width": original_width,
             "original_height": original_height
         }
@@ -263,10 +263,19 @@ def create_label_config(predictions):
             <View style="display: flex;">
                 <View style="width: {100/len(predictions)}%; margin-right: 1.99%">
                 <Image name="img{i+1}" value="$img{i+1}"/>
-                <Choices name="class-{i+1}" toName="img{i+1}" choice="multiple">
-                    <Choice value="People" />
-                    <Choice value="Trees" />
-                </Choices>
+                <RectangleLabels name="label{i+1}" toName="img{i+1}">
+                    <Label value="Great Egret" background="#FFA39E"/>
+                    <Label value="Great Blue Heron" background="#D4380D"/>
+                    <Label value="Wood Stork" background="#FFC069"/>
+                    <Label value="Snowy Egret" background="#AD8B00"/>
+                    <Label value="Anhinga" background="#D3F261"/>
+                    <Label value="Unidentified White" background="#389E0D"/>
+                    <Label value="White Ibis" background="#5CDBD3"/>
+                    <Label value="Nest" background="#FFA39E"/>
+                    <Label value="Help me!" background="#D4380D"/>
+                    <Label value="Eggs" background="#FFA39E"/>
+                    <Label value="Roseate Spoonbill" background="#FFA39E"/>
+                </RectangleLabels>
                 </View>
             </View>'''
 
@@ -294,7 +303,7 @@ def upload(user, host, key_filename, label_studio_url, images, preannotations, f
     preannotations = {os.path.splitext(os.path.basename(preannotation))[0]: pd.read_csv(preannotation) for preannotation in preannotations}
     sftp_client = create_client(user=user, host=host, key_filename=key_filename)
     label_config = create_label_config(predictions=preannotations)
-    project_name = os.path.basename(images[0]).split("_")[0]
+    project_name = os.path.dirname(images[0])
     label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=project_name, label_config=label_config)
     upload_images(sftp_client=sftp_client, images=images, folder_name=folder_name)
     import_image_tasks(label_studio_project=label_studio_project, image_names=images, local_image_dir=os.path.dirname(images[0]), predictions=preannotations)
