@@ -13,3 +13,4 @@ paramiko
 label-studio
 Pillow
 label_studio_sdk
+scikit-learn

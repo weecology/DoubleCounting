@@ -12,10 +12,12 @@ from hloc.utils.io import get_matches
 import torchvision
 import pycolmap
 import cv2
+import h5py
+import random
 
 import matplotlib.pyplot as pyplot
 
-def create_sfm_model(image_dir, output_path, references, feature_type="disk", matcher="disk+lightglue", visualize=False):
+def create_sfm_model(image_dir, output_path, references, feature_type="disk", matcher="disk+lightglue", visualize=False, feature_conf=None):
   """
   Generate features for a set of images and perform matching.
 
@@ -26,6 +28,7 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
     feature_type (str, optional): Type of feature extraction method. Defaults to "disk".
     matcher (str, optional): Type of feature matching method. Defaults to "disk+lightglue".
     visualize (bool, optional): Whether to visualize the SfM model. Defaults to False.
+    feature_conf (dict, optional): Configuration for feature extraction. Defaults to None.
 
   Returns:
     None
@@ -37,7 +40,8 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
   matches = output_path / 'matches.h5'
 
   # Set feature type
-  feature_conf = extract_features.confs[feature_type]
+  if feature_conf is None:
+    feature_conf = extract_features.confs[feature_type]
   matcher_conf = match_features.confs[matcher]
 
   # Match and write files to disk
@@ -47,15 +51,45 @@ def create_sfm_model(image_dir, output_path, references, feature_type="disk", ma
     pairs_from_exhaustive.main(sfm_pairs, image_list=references)
   if not os.path.exists(matches):
     match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
-  if not os.path.exists(sfm_dir):
-    model = reconstruction.main(sfm_dir = sfm_dir, image_dir=image_dir, pairs=sfm_pairs, features=features, matches=matches)
-  else:
-    model = Reconstruction(sfm_dir)
+  #if not os.path.exists(sfm_dir):
+  #  model = reconstruction.main(sfm_dir = sfm_dir, image_dir=image_dir, pairs=sfm_pairs, features=features, matches=matches)
+  #else:
+  #  model = Reconstruction(sfm_dir)
   
-  if visualize:
-    visualization.visualize_sfm_2d(model, image_dir, color_by="visibility", n=1)
+  #if model is None:
+  #  raise ValueError("SfM model failed to reconstruct")
+  
+  #if visualize:
+  #  visualization.visualize_sfm_2d(model, image_dir, color_by="visibility", n=1)
 
-  return model
+  #return model
+
+def get_matching_points(h5_file, image1_name, image2_name, min_score=None):
+  """
+  Get matching points between two images from an h5 file.
+
+  Args:
+    h5_file (str): Path to the h5 file containing the matches.
+    image1_name (str): Name of the first image.
+    image2_name (str): Name of the second image.
+    min_score (float, optional): Minimum score for a match to be considered. Defaults to None
+
+  Returns:
+    tuple: Two numpy arrays containing the matching points from the two images.
+  """
+  matches, scores = get_matches(h5_file, image1_name, image2_name)
+  if min_score is not None:
+    matches = matches[scores > min_score]
+  match_index = pd.DataFrame(matches, columns=["image1", "image2"])
+  
+  # Open features h5 and lookup matching features
+  with h5py.File(os.path.dirname(h5_file) + "/features.h5", 'r') as features_h5_f:
+    keypoints_image1 = pd.DataFrame(features_h5_f[image1_name]["keypoints"][:], columns=["x", "y"])
+    keypoints_image2 = pd.DataFrame(features_h5_f[image2_name]["keypoints"][:], columns=["x", "y"])
+    points1 = keypoints_image1.iloc[match_index["image1"].values].values
+    points2 = keypoints_image2.iloc[match_index["image2"].values].values
+
+  return points1, points2
 
 def compute_homography_matrix(model, h5_file, image1_name, image2_name):
   """Compute the homography matrix between two images.
@@ -66,13 +100,7 @@ def compute_homography_matrix(model, h5_file, image1_name, image2_name):
   Returns:
       dict: Dictionary of estimation outputs or None if failure.
   """
-  matches, scores = get_matches(h5_file, image1_name, image2_name)
-  image1 = model.find_image_with_name(image1_name)
-  image2 = model.find_image_with_name(image2_name)
-
-  # Look up the matching points for each index, which is the first and which is the second index?
-  points1 = [image1.points2D[i].xy for i in matches[:,0]]
-  points2 = [image2.points2D[i].xy for i in matches[:,1]]
+  points1, points2 = get_matching_points(h5_file, image1_name, image2_name)
 
   # Raise error if points are empty
   if len(points1) == 0 or len(points2) == 0:
@@ -200,7 +228,7 @@ def remove_predictions(src_predictions, dst_predictions, aligned_predictions, th
   return src_filtered, dst_filtered
 
 
-def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_dir=None, strategy='highest_score'):
+def align_and_delete(model, matching_h5_file, predictions, threshold=0.3, image_dir=None, strategy='highest_score'):
   """
   Given a set of images and predictions, align the images using the sfm_model and delete overlapping images.
 
@@ -220,9 +248,6 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
   # Make sure the indices are reset and unique
   predictions["box_id"] = predictions.reset_index().index
 
-  # Only run images registered in the model
-  image_names = [image_name for image_name in image_names if model.find_image_with_name(image_name) is not None]
-
   # Create a dictionary of prediction to filter
   filtered_predictions = {}
   for x in image_names:
@@ -233,8 +258,10 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
       # Compute homography   
       try:
         homography = compute_homography_matrix(model=model, h5_file=matching_h5_file, image1_name=src_image_name, image2_name=dst_image_name)
-      except ValueError:
+      except Exception:
         continue
+
+      # Get the predictions for the source and destination images
       src_image_predictions = filtered_predictions[src_image_name]
       dst_image_predictions = filtered_predictions[dst_image_name]
       
@@ -246,6 +273,7 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
         aligned_predictions=aligned_predictions,
         threshold=threshold,
         strategy=strategy)
+      
       filtered_predictions[src_image_name] = src_filtered_predictions
       filtered_predictions[dst_image_name] = dst_filtered_predictions
   
@@ -253,3 +281,44 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.5, image_
   filtered_predictions = pd.concat(filtered_predictions.values())
 
   return filtered_predictions
+
+def collect_keypoints(predictions, matching_h5_file):
+  image_names = predictions.image_path.unique()
+  image_names.sort()
+
+  keypoints_data = []
+
+  for index, src_image_name in enumerate(image_names):
+    for dst_image_name in image_names[index+1:]:
+      keypoints = generate_keypoints(matching_h5_file, src_image_name, dst_image_name)
+      keypoints_data.append(keypoints)
+  
+  keypoints_data = pd.concat(keypoints_data)
+
+  return keypoints_data
+
+def generate_keypoints(matching_h5_file, image1_name, image2_name, min_match_score=0.9):
+  """
+  Generate a DataFrame of keypoints with random colors for each unique match.
+
+  Args:
+    matching_h5_file (str): Path to the h5 file containing the matches.
+    image1_name (str): Name of the first image.
+    image2_name (str): Name of the second image.
+    min_match_score (float, optional): Minimum score for a match to be considered. Defaults to 0.9.
+
+  Returns:
+    DataFrame: A DataFrame with columns x, y, image, and color.
+  """
+  points1, points2 = get_matching_points(matching_h5_file, image1_name, image2_name, min_score=min_match_score)
+  keypoints_list = []
+  for (x1, y1), (x2, y2) in zip(points1, points2):
+    color = tuple(np.random.randint(0, 256, 3))
+    keypoints_list.append({'x': x1, 'y': y1, 'image': image1_name, 'color': color})
+    keypoints_list.append({'x': x2, 'y': y2, 'image': image2_name, 'color': color})
+
+  # Create a DataFrame from the keypoints list
+  keypoints_df = pd.DataFrame(keypoints_list)
+
+  return keypoints_df
+

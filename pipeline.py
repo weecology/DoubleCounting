@@ -3,11 +3,12 @@
 import argparse
 from scripts.labelstudio import upload
 from scripts.predict import predict
-from scripts.stitching import align_and_delete, create_sfm_model
+from scripts.stitching import align_and_delete, create_sfm_model, collect_keypoints
 import os
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
+from hloc.extract_features import confs
 
 parser = argparse.ArgumentParser(description='Predict bounding boxes on an image')
 parser.add_argument('--save_dir', type=str, help='Directory to save csv and svg files')
@@ -29,6 +30,7 @@ args = parser.parse_args()
     
 def wrapper(folder_path, args):
     images, predictions_csvs = predict(image_dir=folder_path, save_dir=args.save_dir, model_path=args.model_path)
+    
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     basename = os.path.basename(folder_path)
     output_path = Path(os.path.join(args.save_dir, basename,timestamp))
@@ -55,6 +57,9 @@ def wrapper(folder_path, args):
     # Create a list of image paths
     image_paths = [os.path.join(folder_path, path) for path in split_predictions.groups.keys()]
 
+    # Gather keypoints for each image
+    keypoints = collect_keypoints(predictions=filtered_predictions, matching_h5_file=output_path / "matches.h5")
+    
     # Upload the images and CSV files to the Label Studio server
     upload(
         user=args.user,
@@ -63,10 +68,15 @@ def wrapper(folder_path, args):
         label_studio_url=args.label_studio_url,
         images=image_paths,
         preannotations=csv_files,
+        keypoints=keypoints,
         folder_name=args.label_studio_folder
     )
 
 # for each folder in image_dir, get the folder name and run the wrapper function
 for folder in os.listdir(args.image_dir):
     folder_path = os.path.join(args.image_dir, folder)
-    wrapper(folder_path, args)
+    try:
+        wrapper(folder_path, args)
+    except Exception as e:
+        print(f"Error processing {folder_path}: {e}")
+        continue

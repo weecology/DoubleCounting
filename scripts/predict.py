@@ -28,7 +28,7 @@ def predict(model_path, save_dir=None, image_dir=None, image_paths=None):
     predictions = []
     for image_path in image_paths:
         boxes = m.predict_tile(image_path, patch_size=1500, patch_overlap=0.05)
-        boxes = boxes[boxes["score"] > 0.2]
+        boxes = boxes[boxes["score"] > 0.4]
         if save_dir:
             basename = os.path.splitext(os.path.basename(image_path))[0]
             filename = os.path.join(save_dir, "{}.csv".format(basename))

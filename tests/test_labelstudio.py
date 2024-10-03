@@ -27,5 +27,6 @@ def test_upload_to_labelstudio(tmpdir):
             label_studio_url="https://labelstudio.naturecast.org/",
             images=images,
             preannotations=predictions,
-            folder_name="/pgsql/retrieverdash/everglades-label-studio/everglades-data"
+            folder_name="/pgsql/retrieverdash/everglades-label-studio/everglades-data",
+            keypoints=[]
         )

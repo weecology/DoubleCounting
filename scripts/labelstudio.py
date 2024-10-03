@@ -193,7 +193,7 @@ def label_studio_bbox_format(local_image_dir, preannotations, from_name="label")
     unique_images = preannotations.image_path.unique()
     image_index_dict = {}
     for index, image in enumerate(unique_images):
-        image_index_dict[image] = "img{}".format(index)
+        image_index_dict[image] = "img{}".format(index+1)
 
     for index, row in preannotations.iterrows():
         result = {
@@ -209,7 +209,7 @@ def label_studio_bbox_format(local_image_dir, preannotations, from_name="label")
             "to_name": image_index_dict[row["image_path"]],
             "type": "rectanglelabels",
             "from_name": image_index_dict[row["image_path"]].replace("img", "label"),
-            "original_width": original_width,
+            "original_width": original_width,   
             "original_height": original_height
         }
         predictions.append(result)
@@ -261,7 +261,7 @@ def create_label_config(predictions):
     for i, image_name in enumerate(predictions.keys()):
         xml += f'''
             <View style="display: flex;">
-                <View style="width: {100/len(predictions)}%; margin-right: 1.99%">
+                <View>
                 <Image name="img{i+1}" value="$img{i+1}"/>
                 <RectangleLabels name="label{i+1}" toName="img{i+1}">
                     <Label value="Great Egret" background="#FFA39E"/>
@@ -284,7 +284,7 @@ def create_label_config(predictions):
 
     return xml
 
-def upload(user, host, key_filename, label_studio_url, images, preannotations, folder_name):
+def upload(user, host, key_filename, label_studio_url, images, preannotations, keypoints, folder_name):
     """
     Uploads images to Label Studio and imports image tasks with preannotations.
 
@@ -295,6 +295,8 @@ def upload(user, host, key_filename, label_studio_url, images, preannotations, f
         label_studio_url (str): The URL of the Label Studio instance.
         images (str): List of paths to the images to upload. Assumes that all images are in the same directory!
         preannotations (str): The csv files containing the preannotations.
+        folder_name (str): The name of the folder on the remote server where the images will be uploaded.
+        keypoints ()
 
     Returns:
         None
@@ -303,51 +305,67 @@ def upload(user, host, key_filename, label_studio_url, images, preannotations, f
     preannotations = {os.path.splitext(os.path.basename(preannotation))[0]: pd.read_csv(preannotation) for preannotation in preannotations}
     sftp_client = create_client(user=user, host=host, key_filename=key_filename)
     label_config = create_label_config(predictions=preannotations)
-    project_name = os.path.dirname(images[0])
+    project_name = os.path.basename(os.path.dirname(images[0]))
     label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=project_name, label_config=label_config)
     upload_images(sftp_client=sftp_client, images=images, folder_name=folder_name)
     import_image_tasks(label_studio_project=label_studio_project, image_names=images, local_image_dir=os.path.dirname(images[0]), predictions=preannotations)
+    import_keypoints(label_studio_project=label_studio_project, keypoints=keypoints)
 
-def create_image_pairs_for_annotation(img_left_path, img_right_path, model_path):
-    """
-    Creates image pairs for annotation using the provided image paths.
-    
-    Args:
-        img_left_path (str): The file path of the left image.
-        img_right_path (str): The file path of the right image.
-    
-    Returns:
-        list: A list of JSON objects in the Label Studio format containing the bounding box annotations for both images.
-    """
-    _, predictions_left = predict(image_paths=[img_left_path], model_path=model_path)
-    _, predictions_right = predict(image_paths=[img_right_path], model_path=model_path)
-    label_studio_json_left = label_studio_bbox_format(predictions_left, to_name="img-left", from_name="label-left")
-    label_studio_json_right = label_studio_bbox_format(predictions_right, to_name="img-right", from_name="label-right")
-    # Concat jsons
-    label_studio_json = label_studio_json_left + label_studio_json_right
-    
-    return label_studio_json
 
-def upload_paired_images(img_list, user, folder, host, key_filename, label_studio_url, label_studio_project, label_studio_folder, model_path):
+def import_keypoints(keypoints, label_studio_project):
     """
-    Uploads paired images to Label Studio for annotation.
+    Imports keypoints from a CSV file into a Label Studio project.
 
     Args:
-        img_list (list): A list of two image paths representing the paired images.
-        user (str): The username for the SFTP connection.
-        folder (str): The folder on the SFTP server where the images will be uploaded.
-        host (str): The hostname or IP address of the SFTP server.
-        key_filename (str): The path to the private key file for authentication.
-        label_studio_url (str): The URL of the Label Studio instance.
-        label_studio_project (str): The name of the Label Studio project.
-        label_studio_folder (str): The folder name in Label Studio where the images will be uploaded.
-        model_path (str): The path to the model checkpoint for inference.
+        keypoint_csv_file (str): The path to the CSV file containing the keypoints.
+        label_studio_project (LabelStudioProject): The Label Studio project to import the keypoints into.
 
     Returns:
         None
     """
-    sftp_client = create_client(user=user, host=host, key_filename=key_filename)
-    label_studio_project = connect_to_label_studio(url=label_studio_url, project_name=label_studio_project)
-    create_image_pairs_for_annotation(img_list[0], img_list[1], model_path)
-    upload_images(sftp_client, img_list, label_studio_project, label_studio_folder)
-    
+    data_dict = {}
+    image_name_order = keypoints["image_path"].drop_duplicates().reset_index(drop=True, inplace=True)
+    image_name_order.index = keypoints.index + 1
+    image_name_order = image_name_order.to_dict()
+    image_name_order = {v: k for k, v in image_name_order.items()}
+
+    keypoints_data = []
+    for i, row in keypoints.iterrows():
+        data_dict["img{}".format(i+1)] = os.path.join("/data/local-files/?d=input/", os.path.basename(row["image_path"]))
+        image = image_name_order[row["image_path"]]
+        x = row["x"]
+        y = row["y"]
+        color = row["color"]
+        keypoint_json = label_studio_keypoint_format(image, x, y, color)
+        keypoints_data.append(keypoint_json)
+
+    upload_dict = {"data": data_dict, "predictions": keypoints_data}
+    label_studio_project.import_tasks(upload_dict)
+
+def label_studio_keypoint_format(image, x, y, color):
+    """
+    Create a JSON string for a single keypoint in the Label Studio API format.
+
+    Args:io
+        image (str): The name of the image.
+        x (float): The x-coordinate of the keypoint.
+        y (float): The y-coordinate of the keypoint.
+        color (str): The color of the keypoint.
+
+    Returns:
+        dict: The JSON string in the Label Studio API format.
+    """
+    result = {
+        "value": {
+            "x": x,
+            "y": y,
+            "width": 0.01,  # width and height are small since it's a keypoint
+            "height": 0.01,
+            "rotation": 0,
+            'fillColor': color
+        },
+        "to_name": image,  # assuming the keypoint is for the first image
+        "type": "KeyPoint",
+        "from_name": "keypoint1"
+    }
+    return {"result": [result]}

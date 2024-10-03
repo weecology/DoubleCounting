@@ -1,4 +1,4 @@
-from scripts.stitching import create_sfm_model, align_and_delete, compute_homography_matrix, warp_points, align_predictions, remove_predictions
+from scripts.stitching import *
 from scripts.predict import predict
 import cv2
 import os
@@ -38,7 +38,7 @@ def model_birds(test_data_dir):
     output_path.mkdir(parents=True, exist_ok=True)
     image_dir = Path(os.path.join(os.path.dirname(__file__),"data/birds"))
     references = [str(p.relative_to(image_dir)) for p in (image_dir).iterdir()]
-    return create_sfm_model(image_dir=image_dir, references=references, output_path=output_path)
+    create_sfm_model(image_dir=image_dir, references=references, output_path=output_path)
 
 def test_create_sfm_model(test_data_dir):
     # Call the function, create a local directory in test to save outputs
@@ -80,15 +80,13 @@ def test_compute_homography_matrix_and_warp(test_data_dir, model_birds):
     ]
     plot_images([read_image(image_dir / x) for x in [image_1, image_2]], dpi=200)
     plot_keypoints(keypoints,colors=['purple','orange'])
-
-    # Call the function with the proper index
-    camera = model_birds.cameras[1]
     
     output_path = Path(os.path.join(test_data_dir, "output_birds"))
 
     answer = compute_homography_matrix(
         model=model_birds,
         h5_file=output_path / "matches.h5",
+        # Hot fix, the order of the names matters
         image1_name=image_1,
         image2_name=image_2)
 
@@ -203,7 +201,7 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
 
     final_predictions = align_and_delete(predictions=predictions, model=model_birds, image_dir=image_dir, matching_h5_file=output_path / "matches.h5", strategy=strategy)
 
-    fig, axs = pyplot.subplots(2, 2, figsize=(15, 10))
+    fig, axs = pyplot.subplots(3, 2, figsize=(15, 10))
     axs = axs.flatten()
     images_to_plot = final_predictions["image_path"].unique()
     images_to_plot.sort()
@@ -233,3 +231,29 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
     pyplot.show()
 
     print("Tests passed!")
+
+def test_generate_keypoints(test_data_dir):
+    """Test the generate_keypoints function."""
+    output_path = Path(os.path.join(test_data_dir, "output_birds"))
+    matching_h5_file = output_path / "matches.h5"
+    features_h5_file = output_path / "features.h5"
+
+    # Generate keypoints
+    keypoints_df = generate_keypoints(matching_h5_file, features_h5_file)
+
+    # Check that the DataFrame is not empty
+    assert not keypoints_df.empty, "The keypoints DataFrame is empty."
+
+    # Check that the DataFrame has the correct columns
+    expected_columns = {"x", "y", "image", "color"}
+    assert set(keypoints_df.columns) == expected_columns, f"Expected columns {expected_columns}, but got {set(keypoints_df.columns)}."
+
+    # Check that the DataFrame contains keypoints for both images
+    unique_images = keypoints_df["image"].unique()
+    assert len(unique_images) > 1, "The keypoints DataFrame does not contain keypoints for both images."
+
+    # Check that the colors are in hex format
+    for color in keypoints_df["color"]:
+         isinstance(color, str) and color.startswith("#") and len(color) == 7, f"Invalid color format: {color}"
+
+    print("test_generate_keypoints passed!")
