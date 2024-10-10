@@ -5,7 +5,7 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import box
 from pathlib import Path
-from hloc import extract_features, match_features, reconstruction, visualization, pairs_from_exhaustive, triangulation
+from hloc import extract_features, match_features, reconstruction, visualization, pairs_from_exhaustive
 from pycolmap import Reconstruction
 from hloc.utils import viz_3d
 from hloc.utils.io import get_matches
@@ -13,9 +13,7 @@ import torchvision
 import pycolmap
 import cv2
 import h5py
-import random
 
-import matplotlib.pyplot as pyplot
 
 def create_sfm_model(image_dir, output_path, references, feature_type="disk", matcher="disk+lightglue", visualize=False, feature_conf=None):
   """
@@ -265,6 +263,10 @@ def align_and_delete(model, matching_h5_file, predictions, threshold=0.3, image_
       src_image_predictions = filtered_predictions[src_image_name]
       dst_image_predictions = filtered_predictions[dst_image_name]
       
+      # If the predictions are empty, skip
+      if src_image_predictions.empty or dst_image_predictions.empty:
+        continue
+
       # Align and remove
       aligned_predictions = align_predictions(predictions=src_image_predictions, homography_matrix=homography["H"])   
       src_filtered_predictions, dst_filtered_predictions = remove_predictions(
@@ -291,13 +293,15 @@ def collect_keypoints(predictions, matching_h5_file):
   for index, src_image_name in enumerate(image_names):
     for dst_image_name in image_names[index+1:]:
       keypoints = generate_keypoints(matching_h5_file, src_image_name, dst_image_name)
+      if keypoints is None:
+        continue
       keypoints_data.append(keypoints)
   
   keypoints_data = pd.concat(keypoints_data)
 
   return keypoints_data
 
-def generate_keypoints(matching_h5_file, image1_name, image2_name, min_match_score=0.9):
+def generate_keypoints(matching_h5_file, image1_name, image2_name, min_match_score=0.95):
   """
   Generate a DataFrame of keypoints with random colors for each unique match.
 
@@ -305,20 +309,23 @@ def generate_keypoints(matching_h5_file, image1_name, image2_name, min_match_sco
     matching_h5_file (str): Path to the h5 file containing the matches.
     image1_name (str): Name of the first image.
     image2_name (str): Name of the second image.
-    min_match_score (float, optional): Minimum score for a match to be considered. Defaults to 0.9.
+    min_match_score (float, optional): Minimum score for a match to be considered. Defaults to 0.95.
 
   Returns:
-    DataFrame: A DataFrame with columns x, y, image, and color.
+    DataFrame: A DataFrame with columns x, y, image
   """
   points1, points2 = get_matching_points(matching_h5_file, image1_name, image2_name, min_score=min_match_score)
   keypoints_list = []
-  for (x1, y1), (x2, y2) in zip(points1, points2):
-    color = tuple(np.random.randint(0, 256, 3))
-    keypoints_list.append({'x': x1, 'y': y1, 'image': image1_name, 'color': color})
-    keypoints_list.append({'x': x2, 'y': y2, 'image': image2_name, 'color': color})
+  for index, ((x1, y1), (x2, y2)) in enumerate(zip(points1, points2)):
+
+    keypoints_list.append({'x': x1, 'y': y1, 'image': image1_name, 'match_image': image2_name})
+    keypoints_list.append({'x': x2, 'y': y2, 'image': image2_name, 'match_image': image1_name})
 
   # Create a DataFrame from the keypoints list
   keypoints_df = pd.DataFrame(keypoints_list)
 
+  if keypoints_df.empty:
+    return None
+  
   return keypoints_df
 

@@ -36,7 +36,7 @@ def wrapper(folder_path, args):
     output_path = Path(os.path.join(args.save_dir, basename,timestamp))
     output_path.mkdir(parents=True, exist_ok=True)
     image_dir = Path(folder_path)
-    references = [str(p.relative_to(image_dir)) for p in (image_dir).iterdir()]
+    references = [str(p.relative_to(image_dir)) for p in image_dir.iterdir() if p.is_file()]
 
     sfm_model = create_sfm_model(image_dir=image_dir, output_path=output_path, references=references)
 

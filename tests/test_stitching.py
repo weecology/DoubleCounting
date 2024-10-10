@@ -156,12 +156,16 @@ def test_align_predictions(predictions, test_data_dir, model_birds):
 
     # Delete predictions and show the result
     predictions_to_remove = pd.concat([aligned_predictions, predictions[predictions.image_path == dst_image_name]])
-    remaining_predictions = remove_predictions(predictions_to_remove)
+    src_filtered_predictions, dst_filtered_predictions = remove_predictions(
+        src_predictions=src_image_predictions,
+        dst_predictions=dst_image_predictions,
+        aligned_predictions=aligned_predictions)
+      
 
     # Final predictions
     pyplot.figure()
     final_image = cv2.imread(os.path.join(image_dir.__str__(), dst_image_name))
-    for index, row in remaining_predictions.iterrows():
+    for index, row in src_filtered_predictions.iterrows():
         x = row["xmin"]
         y = row["ymin"]
         w = row["xmax"] - row["xmin"]
@@ -232,20 +236,22 @@ def test_align_and_delete(predictions, test_data_dir, model_birds, strategy):
 
     print("Tests passed!")
 
-def test_generate_keypoints(test_data_dir):
+def test_generate_keypoints(test_data_dir, predictions):
     """Test the generate_keypoints function."""
     output_path = Path(os.path.join(test_data_dir, "output_birds"))
     matching_h5_file = output_path / "matches.h5"
-    features_h5_file = output_path / "features.h5"
+
+    src_image_name = predictions.image_path.unique()[0]
+    dst_image_name = predictions.image_path.unique()[1]
 
     # Generate keypoints
-    keypoints_df = generate_keypoints(matching_h5_file, features_h5_file)
+    keypoints_df = generate_keypoints(matching_h5_file, src_image_name, dst_image_name)
 
     # Check that the DataFrame is not empty
     assert not keypoints_df.empty, "The keypoints DataFrame is empty."
 
     # Check that the DataFrame has the correct columns
-    expected_columns = {"x", "y", "image", "color"}
+    expected_columns = {"x", "y", "image", "color","id"}
     assert set(keypoints_df.columns) == expected_columns, f"Expected columns {expected_columns}, but got {set(keypoints_df.columns)}."
 
     # Check that the DataFrame contains keypoints for both images
